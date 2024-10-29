@@ -1,0 +1,147 @@
+import os
+import shutil
+import ctypes
+import win32api
+import win32file
+from tqdm import tqdm
+from tkinter import Tk, filedialog
+
+def select_folder():
+    """使用檔案總管選擇資料夾"""
+    # 建立 Tk 根視窗
+    root = Tk()
+    # 隱藏根視窗
+    root.withdraw()
+    
+    print("請在檔案總管中選擇要儲存的位置...")
+    
+    # 開啟資料夾選擇對話框
+    folder_path = filedialog.askdirectory(
+        title='選擇儲存位置',
+        initialdir='/')  # 起始位置設為根目錄
+    
+    # 如果使用者沒有選擇資料夾（按取消）
+    if not folder_path:
+        print("未選擇資料夾！")
+        return None
+        
+    # 在選擇的資料夾下建立 "光碟2024" 資料夾
+    target_path = os.path.join(folder_path, "光碟2024")
+    
+    return target_path
+
+def get_total_files(directory):
+    """計算總檔案數量"""
+    total = 0
+    for root, dirs, files in os.walk(directory):
+        total += len(files)
+    return total
+
+def copy_with_progress(src, dst, total_files):
+    """帶進度條的複製函數"""
+    if not os.path.exists(dst):
+        os.makedirs(dst)
+    
+    with tqdm(total=total_files, desc="複製進度", unit="檔案") as pbar:
+        for root, dirs, files in os.walk(src):
+            # 創建目標資料夾結構
+            for dir_name in dirs:
+                src_dir = os.path.join(root, dir_name)
+                dst_dir = os.path.join(dst, os.path.relpath(src_dir, src))
+                if not os.path.exists(dst_dir):
+                    os.makedirs(dst_dir)
+            
+            # 複製檔案
+            for file_name in files:
+                src_file = os.path.join(root, file_name)
+                dst_file = os.path.join(dst, os.path.relpath(src_file, src))
+                try:
+                    shutil.copy2(src_file, dst_file)
+                    pbar.update(1)
+                except Exception as e:
+                    print(f"\n複製檔案 {src_file} 時發生錯誤: {str(e)}")
+
+def copy_cd_contents():
+    print("歡迎使用光碟複製程式！")
+    
+    # 選擇目標資料夾
+    base_folder = select_folder()
+    if not base_folder:
+        print("程式結束")
+        return
+    
+    print(f"已選擇儲存位置: {base_folder}")
+    
+    while True:
+        # 確保基礎資料夾存在
+        if not os.path.exists(base_folder):
+            os.makedirs(base_folder)
+            
+        # 取得光碟機代號
+        drives = win32api.GetLogicalDriveStrings()
+        drives = drives.split('\000')[:-1]
+        cd_drives = [d for d in drives if win32file.GetDriveType(d) == win32file.DRIVE_CDROM]
+        
+        if not cd_drives:
+            print("找不到光碟機！")
+            return
+            
+        cd_drive = cd_drives[0]  # 使用第一個找到的光碟機
+        
+        # 檢查是否有光碟片
+        try:
+            os.listdir(cd_drive)
+        except:
+            print("光碟機中沒有光碟片！")
+            input("請插入光碟片後按Enter繼續...")
+            continue
+            
+        # 詢問光碟名稱
+        cd_name = input("請輸入光碟名稱 (輸入 'exit' 結束程式): ")
+        
+        if cd_name.lower() == 'exit':
+            print("程式結束")
+            break
+            
+        target_folder = os.path.join(base_folder, cd_name)
+        
+        # 確保目標資料夾不存在
+        if os.path.exists(target_folder):
+            overwrite = input(f"資料夾 '{cd_name}' 已存在。是否覆蓋？(y/n): ")
+            if overwrite.lower() != 'y':
+                continue
+            shutil.rmtree(target_folder)
+            
+        # 計算總檔案數量
+        print("正在計算檔案數量...")
+        total_files = get_total_files(cd_drive)
+        
+        # 開始複製
+        print(f"開始複製 '{cd_name}' 的內容...")
+        try:
+            copy_with_progress(cd_drive, target_folder, total_files)
+            print("複製完成！")
+        except Exception as e:
+            print(f"複製過程發生錯誤: {str(e)}")
+            continue
+            
+        # 退出光碟
+        try:
+            ctypes.windll.WINMM.mciSendStringW("set cdaudio door open", None, 0, None)
+            print("光碟機已退出")
+        except:
+            print("無法自動退出光碟機")
+            
+        print("請取出光碟片")
+        continue_copy = input("是否要繼續複製其他光碟？(y/n): ")
+        if continue_copy.lower() != 'y':
+            print("程式結束")
+            break
+
+if __name__ == "__main__":
+    try:
+        copy_cd_contents()
+    except KeyboardInterrupt:
+        print("\n程式已被使用者中斷")
+    except Exception as e:
+        print(f"發生未預期的錯誤: {str(e)}")
